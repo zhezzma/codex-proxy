@@ -29,6 +29,8 @@ import { startQuotaRefresh, stopQuotaRefresh } from "./auth/usage-refresher.js";
 import { UsageStatsStore } from "./auth/usage-stats.js";
 import { startSessionCleanup, stopSessionCleanup } from "./auth/dashboard-session.js";
 import { createDashboardAuthRoutes } from "./routes/dashboard-login.js";
+import { applyRuntimeEnvOverrides } from "./bootstrap/app-runtime-overrides.js";
+import { normalizeBootstrapAccounts } from "./bootstrap/normalize-bootstrap-accounts.js";
 
 export interface ServerHandle {
   close: () => Promise<void>;
@@ -48,16 +50,25 @@ export async function startServer(options?: StartOptions): Promise<ServerHandle>
   // Load configuration
   console.log("[Init] Loading configuration...");
   const config = loadConfig();
+  applyRuntimeEnvOverrides(config);
   loadFingerprint();
 
   // Load static model catalog (before transport/auth init)
   loadStaticModels();
 
   // Detect proxy (config > env > auto-detect local ports)
-  await initProxy();
+  // await initProxy();
 
   // Initialize TLS transport (auto-selects curl CLI or libcurl FFI)
   await initTransport();
+
+  // Normalize refresh-token-only bootstrap entries before AccountPool loads persistence.
+  const bootstrapResult = await normalizeBootstrapAccounts();
+  if (bootstrapResult.imported || bootstrapResult.failed) {
+    console.log(
+      `[Bootstrap] accounts.json normalized: imported=${bootstrapResult.imported}, failed=${bootstrapResult.failed}, skipped=${bootstrapResult.skipped}`,
+    );
+  }
 
   // Initialize managers
   const accountPool = new AccountPool();
